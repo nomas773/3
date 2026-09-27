@@ -16,49 +16,59 @@ import { Footer } from './components/Footer';
 import { MusicWidget } from './components/MusicWidget';
 import { SettingsModal } from './components/SettingsModal';
 
+// Resilient storage helpers preventing crashes in sandboxed iframes and private windows
+function safeGet<T>(key: string, fallback: T): T {
+  try {
+    const item = typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+    return item ? JSON.parse(item) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeSet(key: string, value: unknown): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+  } catch {
+    // Storage access is restricted; ignore gracefully
+  }
+}
+
 export default function App() {
-  // Envelope opening state
-  const [hasOpenedEnvelope, setHasOpenedEnvelope] = useState<boolean>(() => {
-    return sessionStorage.getItem('envelope_opened') === 'true';
-  });
+  // Envelope modal: false by default so the index page is fully open and interactive immediately!
+  const [showEnvelopeModal, setShowEnvelopeModal] = useState<boolean>(false);
 
   // Engagement data state (v7 - Itsa, 20 Khalid Basha location)
-  const [wedding, setWedding] = useState<WeddingData>(() => {
-    const saved = localStorage.getItem('ahmed_sama_engagement_en_v7');
-    return saved ? JSON.parse(saved) : initialWeddingData;
-  });
+  const [wedding, setWedding] = useState<WeddingData>(() =>
+    safeGet('ahmed_sama_engagement_en_v7', initialWeddingData)
+  );
 
   // Photos state (v9 - Ahmed & Sama Original Photo with Luxury Floral Fallback)
-  const [photos, setPhotos] = useState<GalleryPhoto[]>(() => {
-    const saved = localStorage.getItem('ahmed_sama_photos_en_v9');
-    return saved ? JSON.parse(saved) : initialPhotos;
-  });
+  const [photos, setPhotos] = useState<GalleryPhoto[]>(() =>
+    safeGet('ahmed_sama_photos_en_v9', initialPhotos)
+  );
 
   // Blessings state
-  const [blessings, setBlessings] = useState<Blessing[]>(() => {
-    const saved = localStorage.getItem('ahmed_sama_blessings_en_v3');
-    return saved ? JSON.parse(saved) : initialBlessings;
-  });
+  const [blessings, setBlessings] = useState<Blessing[]>(() =>
+    safeGet('ahmed_sama_blessings_en_v3', initialBlessings)
+  );
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Persistence
   useEffect(() => {
-    localStorage.setItem('ahmed_sama_engagement_en_v7', JSON.stringify(wedding));
+    safeSet('ahmed_sama_engagement_en_v7', wedding);
   }, [wedding]);
 
   useEffect(() => {
-    localStorage.setItem('ahmed_sama_photos_en_v9', JSON.stringify(photos));
+    safeSet('ahmed_sama_photos_en_v9', photos);
   }, [photos]);
 
   useEffect(() => {
-    localStorage.setItem('ahmed_sama_blessings_en_v3', JSON.stringify(blessings));
+    safeSet('ahmed_sama_blessings_en_v3', blessings);
   }, [blessings]);
-
-  const handleOpenEnvelope = () => {
-    setHasOpenedEnvelope(true);
-    sessionStorage.setItem('envelope_opened', 'true');
-  };
 
   const handleAddBlessing = (newBlessing: Blessing) => {
     setBlessings([newBlessing, ...blessings]);
@@ -71,14 +81,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0c10] text-[#f3efe6] flex flex-col selection:bg-[#c59d5f]/30 selection:text-[#faedd0]">
-      {/* Interactive Royal Wax Seal Envelope Entry */}
-      {!hasOpenedEnvelope && (
+    <div className="min-h-screen bg-white text-[#4a1528] flex flex-col selection:bg-pink-200 selection:text-pink-900">
+      {/* Optional Interactive Royal Wax Seal Envelope View */}
+      {showEnvelopeModal && (
         <EnvelopeModal
           groomName={wedding.groomName}
           brideName={wedding.brideName}
           dateArabic={wedding.dateFormattedArabic}
-          onOpen={handleOpenEnvelope}
+          onOpen={() => setShowEnvelopeModal(false)}
         />
       )}
 
@@ -87,6 +97,7 @@ export default function App() {
         groomName={wedding.groomName}
         brideName={wedding.brideName}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenEnvelope={() => setShowEnvelopeModal(true)}
       />
 
       {/* Main Content Sections */}

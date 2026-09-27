@@ -2,17 +2,18 @@
 
 @layer base {
   :root {
-    --gold-primary: #c59d5f;
-    --gold-light: #e8d0a9;
-    --gold-dark: #916f39;
-    --night-bg: #0c0d12;
-    --night-card: #151722;
+    --pink-primary: #ec4899;
+    --pink-light: #fce7f3;
+    --pink-soft: #fff1f6;
+    --pink-deep: #9d174d;
+    --white-bg: #ffffff;
+    --white-card: #ffffff;
   }
 
   body {
     font-family: 'Plus Jakarta Sans', sans-serif;
-    background-color: #0b0c10;
-    color: #f3efe6;
+    background-color: #ffffff;
+    color: #4a1528;
     overflow-x: hidden;
   }
 
@@ -25,45 +26,51 @@
   }
 }
 
-/* Custom golden gradient text and borders */
-.text-gold-gradient {
-  background: linear-gradient(135deg, #f7e1b5 0%, #d4af37 40%, #aa771c 80%, #f3d79b 100%);
+/* Custom romantic pink & white gradient text, borders and glows */
+.text-pink-gradient {
+  background: linear-gradient(135deg, #be185d 0%, #db2777 40%, #ec4899 80%, #f472b6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
-.border-gold-gradient {
-  border-image: linear-gradient(to bottom right, #f3d79b, #aa771c, #d4af37) 1;
+.text-gold-gradient {
+  background: linear-gradient(135deg, #be185d 0%, #db2777 40%, #ec4899 80%, #f472b6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-.bg-gold-gradient {
-  background: linear-gradient(135deg, #d4af37 0%, #b8860b 50%, #916f39 100%);
+.border-pink-gradient {
+  border-image: linear-gradient(to bottom right, #fbcfe8, #f472b6, #ec4899) 1;
 }
 
-.gold-glow {
-  box-shadow: 0 0 25px rgba(212, 175, 55, 0.18);
+.bg-pink-gradient {
+  background: linear-gradient(135deg, #f472b6 0%, #ec4899 50%, #db2777 100%);
 }
 
-.gold-glow-lg {
-  box-shadow: 0 0 45px rgba(212, 175, 55, 0.28);
+.pink-glow {
+  box-shadow: 0 4px 20px rgba(236, 72, 153, 0.18);
 }
 
-/* Custom subtle scrollbar */
+.pink-glow-lg {
+  box-shadow: 0 8px 30px rgba(236, 72, 153, 0.25);
+}
+
+/* Custom subtle romantic pink & white scrollbar */
 ::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0c0d12;
+  background: #ffffff;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2a251b;
+  background: #fbcfe8;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #c59d5f;
+  background: #f472b6;
 }
 

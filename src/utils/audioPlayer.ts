@@ -1,70 +1,231 @@
-// Web Audio API Synthesizer for romantic acoustic harp & oriental wedding ambient music
-// Completely client-side, zero CORS / 404 network failure risks.
+// Wedding Audio Player: Plays user-selected song "وأخيراً" (محمود العسيلي وصابرين)
+// via the official YouTube IFrame API (Video ID: yVzgV_q7oKo) with resilient synthesizer fallback.
+
+export interface TrackMetadata {
+  id: string;
+  title: string;
+  artist: string;
+  youtubeId: string;
+  youtubeUrl: string;
+  thumbnailUrl: string;
+}
+
+export const CURRENT_TRACK: TrackMetadata = {
+  id: 'esseily-sabren-we-akhyran',
+  title: 'وأخيراً',
+  artist: 'محمود العسيلي وصابرين',
+  youtubeId: 'yVzgV_q7oKo',
+  youtubeUrl: 'https://youtu.be/yVzgV_q7oKo',
+  thumbnailUrl: 'https://img.youtube.com/vi/yVzgV_q7oKo/hqdefault.jpg',
+};
+
+export interface YTPlayerInstance {
+  playVideo: () => void;
+  pauseVideo: () => void;
+  stopVideo: () => void;
+  setVolume: (vol: number) => void;
+  getVolume: () => number;
+  getPlayerState: () => number;
+  unMute: () => void;
+  mute: () => void;
+}
+
+type AudioStateListener = (playing: boolean, error?: string | null) => void;
 
 class WeddingAudioPlayer {
-  private ctx: AudioContext | null = null;
+  private ytPlayer: YTPlayerInstance | null = null;
+  private isReady = false;
   private isPlayingState = false;
-  private timer: number | null = null;
-  private volumeGain: GainNode | null = null;
-  private masterVolume = 0.25;
-  private listeners: ((playing: boolean) => void)[] = [];
+  private pendingPlay = false;
+  private listeners: AudioStateListener[] = [];
+  private volume = 75; // 0 - 100
 
-  private initContext() {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
-      this.volumeGain = this.ctx.createGain();
-      this.volumeGain.gain.setValueAtTime(this.masterVolume, this.ctx.currentTime);
-      this.volumeGain.connect(this.ctx.destination);
-    }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+  // Resilient Web Audio fallback if YouTube fails or is blocked
+  private fallbackCtx: AudioContext | null = null;
+  private fallbackTimer: number | null = null;
+  private isUsingFallback = false;
+
+  constructor() {
+    if (typeof window !== 'undefined') {
+      this.loadYouTubeIframeAPI();
     }
   }
 
-  public subscribe(cb: (playing: boolean) => void) {
+  private loadYouTubeIframeAPI() {
+    if (typeof window === 'undefined') return;
+
+    // Check if script already exists
+    if (!document.getElementById('youtube-iframe-api-script')) {
+      const tag = document.createElement('script');
+      tag.id = 'youtube-iframe-api-script';
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+
+    const previousReady = (window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady;
+    (window as unknown as { onYouTubeIframeAPIReady?: () => void }).onYouTubeIframeAPIReady = () => {
+      if (previousReady) previousReady();
+      this.initPlayer();
+    };
+
+    // If YT already loaded
+    const win = window as unknown as { YT?: { Player: unknown } };
+    if (win.YT && win.YT.Player) {
+      this.initPlayer();
+    }
+  }
+
+  public initPlayer(containerId = 'wedding-youtube-audio-container') {
+    const win = window as unknown as {
+      YT?: {
+        Player: new (
+          id: string | HTMLElement,
+          config: {
+            videoId: string;
+            playerVars?: Record<string, unknown>;
+            events?: {
+              onReady?: (e: { target: YTPlayerInstance }) => void;
+              onStateChange?: (e: { data: number }) => void;
+              onError?: (e: { data: number }) => void;
+            };
+          }
+        ) => YTPlayerInstance;
+        PlayerState?: {
+          PLAYING: number;
+          PAUSED: number;
+          ENDED: number;
+        };
+      };
+    };
+
+    if (!win.YT || !win.YT.Player) {
+      return;
+    }
+
+    // Ensure container exists
+    let container = document.getElementById(containerId);
+    if (!container) {
+      container = document.createElement('div');
+      container.id = containerId;
+      // Position offscreen with positive dimensions so YouTube plays audio smoothly
+      container.style.position = 'fixed';
+      container.style.width = '200px';
+      container.style.height = '200px';
+      container.style.bottom = '-400px';
+      container.style.left = '-400px';
+      container.style.opacity = '0.001';
+      container.style.pointerEvents = 'none';
+      container.style.zIndex = '-999';
+      document.body.appendChild(container);
+    }
+
+    try {
+      this.ytPlayer = new win.YT.Player(containerId, {
+        videoId: CURRENT_TRACK.youtubeId,
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          loop: 1,
+          playlist: CURRENT_TRACK.youtubeId,
+          playsinline: 1,
+          modestbranding: 1,
+          rel: 0,
+          enablejsapi: 1,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: (event) => {
+            this.isReady = true;
+            this.ytPlayer = event.target;
+            this.ytPlayer.setVolume(this.volume);
+            if (this.pendingPlay) {
+              this.pendingPlay = false;
+              this.play();
+            }
+          },
+          onStateChange: (event) => {
+            // YT.PlayerState: 1 = PLAYING, 2 = PAUSED, 0 = ENDED
+            if (event.data === 1) {
+              this.isPlayingState = true;
+              this.isUsingFallback = false;
+              this.notify();
+            } else if (event.data === 2 || event.data === 0) {
+              this.isPlayingState = false;
+              this.notify();
+            }
+          },
+          onError: () => {
+            // If YouTube has restrictions in sandbox, trigger resilient synth fallback
+            if (this.isPlayingState || this.pendingPlay) {
+              this.startFallbackAudio();
+            }
+          },
+        },
+      });
+    } catch {
+      // Fallback
+    }
+  }
+
+  public subscribe(cb: AudioStateListener) {
     this.listeners.push(cb);
     return () => {
       this.listeners = this.listeners.filter((l) => l !== cb);
     };
   }
 
-  private notify() {
-    this.listeners.forEach((cb) => cb(this.isPlayingState));
+  private notify(error: string | null = null) {
+    this.listeners.forEach((cb) => cb(this.isPlayingState, error));
   }
 
-  // Plays a gentle plucked chord note (like an oud / harp string)
-  private playPluck(freq: number, startTime: number, duration: number = 2.4, decay: number = 0.08) {
-    if (!this.ctx || !this.volumeGain) return;
+  public play() {
+    if (this.ytPlayer && this.isReady) {
+      try {
+        this.ytPlayer.unMute();
+        this.ytPlayer.setVolume(this.volume);
+        this.ytPlayer.playVideo();
+        this.isPlayingState = true;
+        this.notify();
+        return;
+      } catch {
+        // Failed to call playVideo, try fallback
+        this.startFallbackAudio();
+        return;
+      }
+    }
 
-    const osc1 = this.ctx.createOscillator();
-    const osc2 = this.ctx.createOscillator();
-    const noteGain = this.ctx.createGain();
-    const filter = this.ctx.createBiquadFilter();
+    // If player not ready yet, mark pending
+    this.pendingPlay = true;
+    this.isPlayingState = true;
+    this.notify();
 
-    osc1.type = 'triangle';
-    osc2.type = 'sine';
+    // If still not ready after 3.5s, trigger graceful acoustic fallback
+    setTimeout(() => {
+      if (this.pendingPlay && (!this.ytPlayer || !this.isReady)) {
+        this.pendingPlay = false;
+        this.startFallbackAudio();
+      }
+    }, 3500);
+  }
 
-    osc1.frequency.setValueAtTime(freq, startTime);
-    osc2.frequency.setValueAtTime(freq * 1.002, startTime); // subtle chorus detune
+  public stop() {
+    this.pendingPlay = false;
+    this.isPlayingState = false;
 
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1400, startTime);
-    filter.frequency.exponentialRampToValueAtTime(320, startTime + duration * 0.7);
+    if (this.ytPlayer && this.isReady) {
+      try {
+        this.ytPlayer.pauseVideo();
+      } catch {
+        // Ignore
+      }
+    }
 
-    noteGain.gain.setValueAtTime(0.0001, startTime);
-    noteGain.gain.exponentialRampToValueAtTime(0.28, startTime + decay);
-    noteGain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+    if (this.isUsingFallback) {
+      this.stopFallbackAudio();
+    }
 
-    osc1.connect(filter);
-    osc2.connect(filter);
-    filter.connect(noteGain);
-    noteGain.connect(this.volumeGain);
-
-    osc1.start(startTime);
-    osc2.start(startTime);
-    osc1.stop(startTime + duration);
-    osc2.stop(startTime + duration);
+    this.notify();
   }
 
   public toggle() {
@@ -75,60 +236,85 @@ class WeddingAudioPlayer {
     }
   }
 
-  public play() {
+  public setVolume(vol: number) {
+    this.volume = Math.max(0, Math.min(100, vol));
+    if (this.ytPlayer && this.isReady) {
+      try {
+        this.ytPlayer.setVolume(this.volume);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
+  public getVolume() {
+    return this.volume;
+  }
+
+  public isPlaying() {
+    return this.isPlayingState;
+  }
+
+  public getTrack() {
+    return CURRENT_TRACK;
+  }
+
+  // Resilient Web Audio synthesizer as backup
+  private startFallbackAudio() {
     try {
-      this.initContext();
-      if (!this.ctx) return;
+      this.isUsingFallback = true;
       this.isPlayingState = true;
-      this.notify();
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!this.fallbackCtx) {
+        this.fallbackCtx = new AudioCtx();
+      }
+      if (this.fallbackCtx.state === 'suspended') {
+        this.fallbackCtx.resume();
+      }
 
-      // Wedding chord progression (Hijaz/Bayat inspired gentle acoustic arpeggios):
-      // D4, F#4, A4, C5, B4, G4, E4, D4
       const notes = [
-        [293.66, 369.99, 440.00, 587.33], // D major
-        [246.94, 311.13, 369.99, 493.88], // Bm
-        [261.63, 329.63, 392.00, 523.25], // C / G
-        [329.63, 392.00, 493.88, 587.33], // Em
-        [293.66, 369.99, 440.00, 554.37], // Dmaj7
+        [293.66, 369.99, 440.00, 587.33],
+        [246.94, 311.13, 369.99, 493.88],
+        [261.63, 329.63, 392.00, 523.25],
+        [329.63, 392.00, 493.88, 587.33],
       ];
+      let idx = 0;
 
-      let chordIdx = 0;
-      const playNextArpeggio = () => {
-        if (!this.isPlayingState || !this.ctx) return;
-        const now = this.ctx.currentTime;
-        const currentChord = notes[chordIdx % notes.length];
-        
-        currentChord.forEach((freq, i) => {
-          this.playPluck(freq, now + i * 0.35, 2.5);
+      const step = () => {
+        if (!this.isPlayingState || !this.fallbackCtx) return;
+        const now = this.fallbackCtx.currentTime;
+        const chord = notes[idx % notes.length];
+        chord.forEach((freq, i) => {
+          if (!this.fallbackCtx) return;
+          const osc = this.fallbackCtx.createOscillator();
+          const gain = this.fallbackCtx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(freq, now + i * 0.35);
+          gain.gain.setValueAtTime(0.0001, now + i * 0.35);
+          gain.gain.exponentialRampToValueAtTime(0.2, now + i * 0.35 + 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.35 + 2.2);
+          osc.connect(gain);
+          gain.connect(this.fallbackCtx.destination);
+          osc.start(now + i * 0.35);
+          osc.stop(now + i * 0.35 + 2.4);
         });
-
-        // Add soft high chime
-        if (chordIdx % 2 === 0) {
-          this.playPluck(currentChord[currentChord.length - 1] * 1.5, now + 1.2, 3.0, 0.05);
-        }
-
-        chordIdx++;
-        this.timer = window.setTimeout(playNextArpeggio, 2600);
+        idx++;
+        this.fallbackTimer = window.setTimeout(step, 2800);
       };
-
-      playNextArpeggio();
+      step();
+      this.notify();
     } catch {
       this.isPlayingState = false;
       this.notify();
     }
   }
 
-  public stop() {
-    this.isPlayingState = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
+  private stopFallbackAudio() {
+    this.isUsingFallback = false;
+    if (this.fallbackTimer) {
+      clearTimeout(this.fallbackTimer);
+      this.fallbackTimer = null;
     }
-    this.notify();
-  }
-
-  public isPlaying() {
-    return this.isPlayingState;
   }
 }
 
